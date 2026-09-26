@@ -298,6 +298,9 @@ impl SettlementContract {
         }
 
         let current_threshold = read_threshold(&env);
+        if new_threshold == current_threshold {
+            panic_with_error!(&env, SettlementError::SameAdmin);
+        }
         verify_admin_auth(&env, &signers, current_threshold + 1);
 
         env.storage()
