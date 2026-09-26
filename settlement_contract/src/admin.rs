@@ -306,9 +306,10 @@ impl SettlementContract {
         env.storage()
             .instance()
             .set(&CommonDataKey::Threshold, &new_threshold);
+        let caller = signers.get(0).unwrap();
         env.events().publish(
             (Symbol::new(&env, events::THRESHOLD_CHANGED_EVENT),),
-            (current_threshold, new_threshold),
+            (caller, current_threshold, new_threshold),
         );
     }
 
