@@ -364,15 +364,10 @@ impl SettlementContract {
         }
         assert_not_paused(&env);
 
-        // This whole call only ever commits if `merchant.require_auth()` below
-        // succeeds (a panic reverts every storage change made in this
-        // invocation, this TTL bump included), so bumping here — ahead of the
-        // auth check — cannot be abused by a non-merchant caller to keep the
-        // marker warm: their call fails auth and nothing persists.
+        merchant.require_auth();
         if !is_merchant_registered_and_bump_ttl(&env, merchant.clone()) {
             panic_with_error!(&env, SettlementError::MerchantMissing);
         }
-        merchant.require_auth();
         let min_amount = read_min_payment_amount(&env);
         if amount < min_amount {
             panic_with_error!(&env, SettlementError::AmountTooSmall);
