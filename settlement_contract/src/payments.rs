@@ -5,8 +5,8 @@ use bettapay_common::{constants::BPS_DENOMINATOR, events};
 use crate::errors::SettlementError;
 use crate::storage::{
     assert_not_paused, assert_payments_readable, is_merchant_registered_and_bump_ttl,
-    is_merchant_registered_internal, read_min_payment_amount, read_rule_or_default, read_threshold,
-    verify_admin_auth,
+    is_merchant_registered_internal, read_min_payment_amount, read_rule_or_default,
+    read_rule_or_default_no_bump, read_threshold, verify_admin_auth,
 };
 use crate::types::{Bps, DataKey, FeeSplit, PaymentRecord, SettlementRule};
 use crate::BOOTSTRAP_DEFAULT_RULE;
@@ -466,7 +466,11 @@ impl SettlementContract {
         if amount < min_amount {
             panic_with_error!(env, SettlementError::AmountTooSmall);
         }
-        let rule = read_rule_or_default(&env, merchant);
+        // Issue #760 — TTL-neutral rule read: this entry point is callable by
+        // anyone, so the rule must not be kept alive by unauthenticated fee
+        // queries. Fee values are unchanged — the no-bump reader resolves the
+        // identical rule through the same fallback chain.
+        let rule = read_rule_or_default_no_bump(&env, merchant);
         calculate_split(&env, amount, &rule)
     }
 
