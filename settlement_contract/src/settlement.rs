@@ -8,8 +8,8 @@ use bettapay_common::{
 use crate::errors::SettlementError;
 use crate::storage::{
     assert_not_paused, is_merchant_registered_and_bump_ttl, read_fallback_rule,
-    read_rule_or_default, read_threshold, validate_fee_against_governance,
-    validate_nonzero_address, verify_admin_auth,
+    read_rule_or_default, read_rule_or_default_no_bump, read_threshold,
+    validate_fee_against_governance, validate_nonzero_address, verify_admin_auth,
 };
 use crate::types::{DataKey, SettlementRule};
 use crate::{
@@ -173,6 +173,11 @@ impl SettlementContract {
 
     /// Returns the merchant-specific settlement rule, if one has been set.
     /// Automatically extends the persistent storage TTL to prevent archival.
+    ///
+    /// Keep-alive getter for authenticated maintenance flows. Read-only
+    /// consumers that must not affect storage lifetime should call
+    /// [`get_settlement_rule_no_bump`](Self::get_settlement_rule_no_bump)
+    /// instead (issue #763).
     pub fn get_settlement_rule(env: Env, merchant: Address) -> Option<SettlementRule> {
         let key = DataKey::Rule(merchant);
 
@@ -189,6 +194,14 @@ impl SettlementContract {
         }
     }
 
+    /// TTL-neutral variant of [`get_settlement_rule`](Self::get_settlement_rule)
+    /// (issue #763): returns exactly the same value without extending the
+    /// persistent storage TTL, so querying a rule never forces a rent write.
+    pub fn get_settlement_rule_no_bump(env: Env, merchant: Address) -> Option<SettlementRule> {
+        let key = DataKey::Rule(merchant);
+        env.storage().persistent().get::<_, SettlementRule>(&key)
+    }
+
     /// Returns the effective settlement rule for a merchant, applying the full
     /// resolution chain: merchant-specific rule → global default → governance
     /// fee config → bootstrap fallback.
@@ -199,7 +212,10 @@ impl SettlementContract {
     /// follows the same resolution that the write and payment paths use
     /// internally.
     pub fn get_effective_rule(env: Env, merchant: Address) -> SettlementRule {
-        read_rule_or_default(&env, merchant)
+        // Issue #762 — public effective-rule query must be TTL-neutral so
+        // third parties cannot keep a merchant's rule alive via repeated
+        // queries. Returns the identical value through the no-bump reader.
+        read_rule_or_default_no_bump(&env, merchant)
     }
 }
 

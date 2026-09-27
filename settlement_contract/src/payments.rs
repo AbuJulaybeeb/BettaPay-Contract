@@ -5,8 +5,8 @@ use bettapay_common::{constants::BPS_DENOMINATOR, events};
 use crate::errors::SettlementError;
 use crate::storage::{
     assert_not_paused, assert_payments_readable, is_merchant_registered_and_bump_ttl,
-    is_merchant_registered_internal, read_min_payment_amount, read_rule_or_default, read_threshold,
-    verify_admin_auth,
+    is_merchant_registered_internal, read_min_payment_amount, read_rule_or_default,
+    read_rule_or_default_no_bump, read_threshold, verify_admin_auth,
 };
 use crate::types::{Bps, DataKey, FeeSplit, PaymentRecord, SettlementRule};
 use crate::BOOTSTRAP_DEFAULT_RULE;
@@ -393,15 +393,10 @@ impl SettlementContract {
         }
         assert_not_paused(&env);
 
-        // This whole call only ever commits if `merchant.require_auth()` below
-        // succeeds (a panic reverts every storage change made in this
-        // invocation, this TTL bump included), so bumping here — ahead of the
-        // auth check — cannot be abused by a non-merchant caller to keep the
-        // marker warm: their call fails auth and nothing persists.
+        merchant.require_auth();
         if !is_merchant_registered_and_bump_ttl(&env, merchant.clone()) {
             panic_with_error!(&env, SettlementError::MerchantMissing);
         }
-        merchant.require_auth();
         let min_amount = read_min_payment_amount(&env);
         if amount < min_amount {
             panic_with_error!(&env, SettlementError::AmountTooSmall);
@@ -491,7 +486,11 @@ impl SettlementContract {
         if amount < min_amount {
             panic_with_error!(env, SettlementError::AmountTooSmall);
         }
-        let rule = read_rule_or_default(&env, merchant);
+        // Issue #760 — TTL-neutral rule read: this entry point is callable by
+        // anyone, so the rule must not be kept alive by unauthenticated fee
+        // queries. Fee values are unchanged — the no-bump reader resolves the
+        // identical rule through the same fallback chain.
+        let rule = read_rule_or_default_no_bump(&env, merchant);
         calculate_split(&env, amount, &rule)
     }
 

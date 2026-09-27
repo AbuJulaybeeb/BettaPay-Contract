@@ -120,3 +120,58 @@ fn rescheduling_the_same_operation_is_still_a_plain_duplicate() {
     client.schedule(&admins, &operation, &DEFAULT_TIMELOCK_DELAY_SECONDS);
     client.schedule(&admins, &operation, &DEFAULT_TIMELOCK_DELAY_SECONDS);
 }
+
+// ---------------------------------------------------------------------------
+// Issue #819: schedule hash-collision branch test
+// ---------------------------------------------------------------------------
+
+/// Isolates the collision branch inside `schedule` in its own test.
+///
+/// When a storage slot already holds a `ScheduledOp` whose `operation_xdr`
+/// does *not* match the operation being scheduled (simulating an actual
+/// SHA-256 hash collision), `schedule` must raise `OperationHashCollision`
+/// (#316) rather than treating it as a plain duplicate or silently
+/// overwriting the existing entry.
+#[test]
+#[should_panic(expected = "Error(Contract, #316)")]
+fn schedule_collision_branch_raises_operation_hash_collision() {
+    let (env, client, admins, merchant) = setup();
+    let operation = Operation::RegisterMerchant(merchant);
+
+    // Inject a slot whose XDR belongs to a completely different operation,
+    // but occupies the same storage key as `operation` (simulated collision).
+    let colliding_bytes = soroban_sdk::Bytes::from_slice(&env, b"collision: unrelated operation xdr");
+    plant_colliding_slot(
+        &env,
+        &client.address,
+        &operation,
+        colliding_bytes,
+        env.ledger().timestamp() + DEFAULT_TIMELOCK_DELAY_SECONDS,
+    );
+
+    // `schedule` must detect the mismatch and panic with #316, not #12.
+    client.schedule(&admins, &operation, &DEFAULT_TIMELOCK_DELAY_SECONDS);
+}
+
+// ---------------------------------------------------------------------------
+// Issue #818: schedule duplicate-operation rejection test
+// ---------------------------------------------------------------------------
+
+/// Isolates the duplicate-schedule guard in its own test.
+///
+/// When the exact same operation is already pending in the queue (both the
+/// hash and the stored XDR match), `schedule` must raise
+/// `OperationAlreadyScheduled` (#12) and must not silently overwrite the
+/// existing entry or return a different error code.
+#[test]
+#[should_panic(expected = "Error(Contract, #12)")]
+fn schedule_duplicate_operation_raises_operation_already_scheduled() {
+    let (_env, client, admins, merchant) = setup();
+    let operation = Operation::RegisterMerchant(merchant);
+
+    // First schedule succeeds.
+    client.schedule(&admins, &operation, &DEFAULT_TIMELOCK_DELAY_SECONDS);
+
+    // Scheduling the identical operation a second time must panic with #12.
+    client.schedule(&admins, &operation, &DEFAULT_TIMELOCK_DELAY_SECONDS);
+}

@@ -9,7 +9,7 @@
 //! happens to occur.
 
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
-use soroban_sdk::testutils::{Address as _, Ledger};
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, BytesN, Env, Error};
 
 use bettapay_common::events::PendingRecovery;
@@ -165,4 +165,41 @@ fn tombstone_survives_payment_read_attempts() {
             "tombstone TTL must remain valid across payment-read attempts"
         );
     });
+}
+
+/// Issue #759: a failed-auth call to `store_payment_reference` must not warm
+/// the merchant marker. Before the fix, `is_merchant_registered_and_bump_ttl`
+/// was called ahead of `merchant.require_auth()`, so the TTL extended even
+/// when the caller had no authorization for the merchant address.
+///
+/// This test registers a merchant, records the marker's initial TTL, then
+/// attempts a `store_payment_reference` call with no authorizations granted.
+/// After the (expected) auth failure the marker TTL must be unchanged.
+#[test]
+fn store_payment_reference_failed_auth_does_not_bump_merchant_ttl() {
+    let (env, client, admins, merchant) = setup();
+    client.register_merchant(&admins, &merchant);
+
+    let marker_key = DataKey::Merchant(merchant.clone());
+
+    let ttl_before = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&marker_key)
+    });
+
+    env.ledger().with_mut(|l| l.sequence_number += 100);
+
+    let reference = BytesN::<32>::from_array(&env, &[7u8; 32]);
+
+    env.mock_auths(&[]);
+    let result = client.try_store_payment_reference(&merchant, &reference, &1_000);
+    assert!(result.is_err(), "expected store_payment_reference to fail without merchant auth");
+
+    let ttl_after = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&marker_key)
+    });
+
+    assert!(
+        ttl_after <= ttl_before,
+        "merchant marker TTL must not increase on a failed-auth store attempt (before={ttl_before}, after={ttl_after})"
+    );
 }

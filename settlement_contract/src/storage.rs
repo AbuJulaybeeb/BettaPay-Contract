@@ -261,6 +261,28 @@ pub(crate) fn is_merchant_registered_and_bump_ttl(env: &Env, merchant: Address) 
 /// and emit `bootstrap_fallback` explicitly. Read-only paths (e.g.
 /// `calculate_fee_split`) must not emit events.
 pub(crate) fn read_rule_or_default(env: &Env, merchant: Address) -> SettlementRule {
+    // Keep the merchant's rule warm so active merchants do not lose their
+    // override to archival while authenticated paths keep reading it. The
+    // bump happens only when the merchant-specific key exists, matching the
+    // historical behavior exactly.
+    let merchant_key = DataKey::Rule(merchant.clone());
+    if env.storage().persistent().has(&merchant_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&merchant_key, RULE_TTL_THRESHOLD, RULE_TTL_BUMP);
+    }
+    read_rule_or_default_no_bump(env, merchant)
+}
+
+/// TTL-neutral variant of [`read_rule_or_default`] (issue #761): resolves the
+/// identical rule through the same fallback chain (merchant-specific →
+/// default → governance → bootstrap) but never calls `extend_ttl`, so
+/// unauthenticated/public queries cannot keep a merchant's rule alive
+/// (or pay for keep-alive on someone else's behalf).
+///
+/// Authenticated paths that want the keep-alive side effect must call
+/// [`read_rule_or_default`] instead.
+pub(crate) fn read_rule_or_default_no_bump(env: &Env, merchant: Address) -> SettlementRule {
     // Merchant-specific rule wins over any shared configuration.
     let merchant_key = DataKey::Rule(merchant);
     if let Some(rule) = env
@@ -268,9 +290,6 @@ pub(crate) fn read_rule_or_default(env: &Env, merchant: Address) -> SettlementRu
         .persistent()
         .get::<_, SettlementRule>(&merchant_key)
     {
-        env.storage()
-            .persistent()
-            .extend_ttl(&merchant_key, RULE_TTL_THRESHOLD, RULE_TTL_BUMP);
         return rule;
     }
     // Fall back to the admin-controlled global default when present.
