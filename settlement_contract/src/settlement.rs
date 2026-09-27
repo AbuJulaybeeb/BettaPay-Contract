@@ -8,8 +8,8 @@ use bettapay_common::{
 use crate::errors::SettlementError;
 use crate::storage::{
     assert_not_paused, is_merchant_registered_and_bump_ttl, read_fallback_rule,
-    read_rule_or_default, read_threshold, validate_fee_against_governance,
-    validate_nonzero_address, verify_admin_auth,
+    read_rule_or_default, read_rule_or_default_no_bump, read_threshold,
+    validate_fee_against_governance, validate_nonzero_address, verify_admin_auth,
 };
 use crate::types::{DataKey, SettlementRule};
 use crate::{
@@ -199,7 +199,10 @@ impl SettlementContract {
     /// follows the same resolution that the write and payment paths use
     /// internally.
     pub fn get_effective_rule(env: Env, merchant: Address) -> SettlementRule {
-        read_rule_or_default(&env, merchant)
+        // Issue #762 — public effective-rule query must be TTL-neutral so
+        // third parties cannot keep a merchant's rule alive via repeated
+        // queries. Returns the identical value through the no-bump reader.
+        read_rule_or_default_no_bump(&env, merchant)
     }
 }
 
