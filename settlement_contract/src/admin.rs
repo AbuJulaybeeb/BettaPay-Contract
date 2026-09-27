@@ -298,14 +298,18 @@ impl SettlementContract {
         }
 
         let current_threshold = read_threshold(&env);
+        if new_threshold == current_threshold {
+            panic_with_error!(&env, SettlementError::SameAdmin);
+        }
         verify_admin_auth(&env, &signers, current_threshold + 1);
 
         env.storage()
             .instance()
             .set(&CommonDataKey::Threshold, &new_threshold);
+        let caller = signers.get(0).unwrap();
         env.events().publish(
             (Symbol::new(&env, events::THRESHOLD_CHANGED_EVENT),),
-            (current_threshold, new_threshold),
+            (caller, current_threshold, new_threshold),
         );
     }
 
