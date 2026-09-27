@@ -674,3 +674,24 @@ fn execute_before_timelock_is_rejected_with_execution_not_ready() {
     client.cancel(&admins, &operation);
     assert!(!client.is_merchant_registered(&merchant));
 }
+
+// ---------------------------------------------------------------------------
+// Issue #822: Cancel-of-unscheduled operation test
+// ---------------------------------------------------------------------------
+
+/// Verifies that `cancel` returns `OperationNotScheduled` (#11) when the
+/// operation has never been scheduled.
+///
+/// The cancel path mirrors execute: both look up the operation by its hash and
+/// panic with `OperationNotScheduled` when nothing is found.  This test
+/// isolates that branch so it has its own regression coverage independent of
+/// the execute-path tests.
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn cancel_unscheduled_operation_returns_operation_not_scheduled() {
+    let (_env, client, admins, merchant) = setup();
+    let operation = Operation::RegisterMerchant(merchant);
+
+    // The operation was never scheduled — cancel must panic with #11.
+    client.cancel(&admins, &operation);
+}
