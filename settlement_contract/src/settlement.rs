@@ -173,6 +173,11 @@ impl SettlementContract {
 
     /// Returns the merchant-specific settlement rule, if one has been set.
     /// Automatically extends the persistent storage TTL to prevent archival.
+    ///
+    /// Keep-alive getter for authenticated maintenance flows. Read-only
+    /// consumers that must not affect storage lifetime should call
+    /// [`get_settlement_rule_no_bump`](Self::get_settlement_rule_no_bump)
+    /// instead (issue #763).
     pub fn get_settlement_rule(env: Env, merchant: Address) -> Option<SettlementRule> {
         let key = DataKey::Rule(merchant);
 
@@ -187,6 +192,14 @@ impl SettlementContract {
         } else {
             None
         }
+    }
+
+    /// TTL-neutral variant of [`get_settlement_rule`](Self::get_settlement_rule)
+    /// (issue #763): returns exactly the same value without extending the
+    /// persistent storage TTL, so querying a rule never forces a rent write.
+    pub fn get_settlement_rule_no_bump(env: Env, merchant: Address) -> Option<SettlementRule> {
+        let key = DataKey::Rule(merchant);
+        env.storage().persistent().get::<_, SettlementRule>(&key)
     }
 
     /// Returns the effective settlement rule for a merchant, applying the full
